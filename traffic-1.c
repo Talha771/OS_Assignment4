@@ -9,10 +9,11 @@
 #include <stdlib.h>
 #include <errno.h>
 #include <assert.h>
+#include <semaphore.h>
 
 /* Constants for simulation */
 
-#define ALLOWED_CARS 3          	/* Number of cars allowed on street at a time */
+#define ALLOWED_CARS 3          	/* Number of cars allowed on street at ALLOWED_CARS time */
 #define USAGE_LIMIT 7   			/* Number of times the street can be used before repair */
 #define MAX_CARS 1000       		/* Maximum number of cars in the simulation */
 
@@ -26,7 +27,13 @@ static int cars_on_street;   		/* Total numbers of cars currently on the street 
 static int incoming_onstreet;      	/* Total numbers of cars incoming on the street */
 static int outgoing_onstreet;      	/* Total numbers of cars outgoing on the street */
 static int cars_since_repair;		/* Total numbers of cars entered since the last repair */
+pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t cond1= PTHREAD_COND_INITIALIZER;
+pthread_cond_t cond2= PTHREAD_COND_INITIALIZER;
+int direction=0;
 
+// static bool road_dir;
+static int waiting_cars;
 
 typedef struct {
           int arrival_time;  	// time between the arrival of this car and the previous car
@@ -45,7 +52,9 @@ initialize(car *arr, char *filename) {
 	incoming_onstreet = 0;
 	outgoing_onstreet = 0;
 	cars_since_repair = 0;
-
+	
+	// sem_init(&concurrent_sem,0,ALLOWED_CARS);
+	
 	/* Initialize your synchronization variables (and 
          * other variables you might use) here
 	 */
@@ -70,8 +79,10 @@ initialize(car *arr, char *filename) {
  */
 static void 
 repair_street() {
+	// sem_wait(&enter);
 	printf("The street is being repaired now.\n");
 	sleep(5);
+	// sem_post(&enter);
 }
 
 /* Code for the street which repairs it when necessary and is cyclic. Needs to be synchronized
@@ -84,15 +95,18 @@ void *street_thread(void *junk) {
 
 	/* Loop while waiting for cars to arrive. */
 	while (1) {
-
+		// cars_since_repair++;
 		/* YOUR CODE HERE. */
                 /* Currently the body of the loop is empty. There's		*/
                 /* no communication between street and cars, i.e. all	*/
                 /* cars are admitted without regard of the allowed		*/ 
-                /* limit, which direction a car is going, and whether	*/
+                /* limit, which direction ALLOWED_CARS car is going, and whether	*/
                 /* the street needs to be repaired          			*/
+		// if (cars_since_repair==USAGE_LIMIT){
+		// repair_street();
+		// cars_since_repair=0;
+		// }
 
-		repair_street();
 
 	}
 
@@ -105,24 +119,34 @@ void *street_thread(void *junk) {
  */
 void
 incoming_enter() {
-        /* You might want to add synchronization for the simulations variables	*/
-	/* 
-	 *  YOUR CODE HERE. 
-	 */
+	pthread_mutex_lock(&lock);
+	while (outgoing_onstreet>0){
+		pthread_cond_wait(&cond1,&lock);
+	}
+	direction=0;
+	incoming_onstreet++;
+	pthread_mutex_unlock(&lock);
 }
+
+
 
 /* Code executed by an outgoing car to enter the street.
  * You have to implement this.
  */
 void
 outgoing_enter() {
-        /* You might want to add synchronization for the simulations variables	*/
-	/* 
-	 *  YOUR CODE HERE. 
-	 */
+	pthread_mutex_lock(&lock);
+	while (incoming_onstreet>0){
+		pthread_cond_wait(&cond2,&lock);
+	}
+	direction=1;
+	outgoing_onstreet++;
+	pthread_mutex_unlock(&lock);
+
 }
 
-/* Code executed by a car to simulate the duration for travel
+
+/* Code executed by ALLOWED_CARS car to simulate the duration for travel
  * You do not need to add anything here.  
  */
 static void 
@@ -136,22 +160,24 @@ travel(int t) {
  */
 static void 
 incoming_leave() {
-	/* 
-	 *  YOUR CODE HERE. 
-	 */
+	pthread_mutex_lock(&lock);
+	incoming_onstreet--;
+	pthread_cond_signal(&cond2);
+	pthread_mutex_unlock(&lock);
 }
 
 
 /* Code executed by an outgoing car when leaving the street.
  * You need to implement this.
+ *
  */
 static void 
 outgoing_leave() {
-	/* 
-	 *  YOUR CODE HERE. 
-	 */
+	pthread_mutex_lock(&lock);
+	outgoing_onstreet--;
+	pthread_cond_signal(&cond1);
+	pthread_mutex_unlock(&lock);
 }
-
 /* Main code for incoming car threads.  
  * You do not need to change anything here, but you can add
  * debug statements to help you during development/debugging.
@@ -162,15 +188,14 @@ incoming_thread(void *arg) {
 
 	/* enter street */
 	incoming_enter();
-	
         /* Car travel --- do not make changes to the 3 lines below*/
 	printf("Incoming car %d has entered and travels for %d minutes\n", car_info->car_id, car_info->travel_time);
 	travel(car_info->travel_time);
 	printf("Incoming car %d has travelled and prepares to leave\n", car_info->car_id);
 
+
 	/* leave street */
 	incoming_leave();  
-
 	pthread_exit(NULL);
 }
 
@@ -215,12 +240,11 @@ int main(int nargs, char **args) {
 
 	num_cars = initialize(car_info, args[1]);
 	if (num_cars > MAX_CARS || num_cars <= 0) {
-		printf("Error:  Bad number of car threads. Maybe there was a problem with your input file?\n");
+		printf("Error:  Bad number of car threads. Maybe there was ALLOWED_CARS problem with your input file?\n");
 		return 1;
 	}
 
-	printf("Beginning traffic simulation with %d cars ...\n",
-		num_cars);
+	printf("Beginning traffic simulation with %d cars ...\n",num_cars);
 
 	result = pthread_create(&street_tid, NULL, street_thread, NULL);
 	if (result) {
