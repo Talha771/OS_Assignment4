@@ -46,7 +46,7 @@ initialize(car *arr, char *filename) {
 	incoming_onstreet = 0;
 	outgoing_onstreet = 0;
 	cars_since_repair = 0;
-	// sem_init(concurrent_sem,0,3);
+	// sem_init(concurrent_sem,0,ALLOWED_CARS);
 
 	/* Initialize your synchronization variables (and 
          * other variables you might use) here
@@ -120,23 +120,19 @@ void *street_thread(void *junk) {
 void
 incoming_enter() {
 	pthread_mutex_lock(&lock);
-	while (cars_on_street>=7){
+	while (cars_on_street>=USAGE_LIMIT){
 		pthread_cond_wait(&rep_cond,&lock);
 	}
 	while (outgoing_onstreet>0){
 		pthread_cond_wait(&cond1,&lock);
 	}
 	// sem_wait(&concurrent_sem);
-	while (incoming_onstreet>=3){
+	while (incoming_onstreet>=ALLOWED_CARS){
 		pthread_cond_wait(&cond1,&lock);
 	}
 	incoming_onstreet++;
 	pthread_cond_signal(&cond1);
 	pthread_mutex_unlock(&lock);
-        /* You might want to add synchronization for the simulations variables	*/
-	/* 
-	 *  YOUR CODE HERE. 
-	 */
 }
 
 /* Code executed by an outgoing car to enter the street.
@@ -145,14 +141,14 @@ incoming_enter() {
 void
 outgoing_enter() {
 	pthread_mutex_lock(&lock);
-	while (cars_on_street>=7){
+	while (cars_on_street>=USAGE_LIMIT){
 		pthread_cond_wait(&rep_cond,&lock);
 	}
 	while (incoming_onstreet>0){
 		pthread_cond_wait(&cond1,&lock);
 	}
 	// sem_wait(&concurrent_sem);
-	while (outgoing_onstreet>=3){
+	while (outgoing_onstreet>=ALLOWED_CARS){
 		pthread_cond_wait(&cond1,&lock);
 	}
 	outgoing_onstreet++;
@@ -175,7 +171,7 @@ incoming_leave() {
 	cars_since_repair++;
 
 	pthread_cond_signal(&cond1);
-	while (cars_on_street==7){
+	while (cars_on_street==USAGE_LIMIT){
 		pthread_cond_wait(&rep_cond,&lock);
 	}
 	// sem_post(&concurrent_sem)
@@ -192,7 +188,7 @@ outgoing_leave() {
 	cars_since_repair++;
 	
 	pthread_cond_signal(&cond1);
-	while (cars_on_street==7){
+	while (cars_on_street==USAGE_LIMIT){
 		pthread_cond_wait(&rep_cond,&lock);
 	}
 	// sem_post(&concurrent_sem);
